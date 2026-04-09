@@ -283,5 +283,5 @@ function EnemySpawnManager:EnemyAI(EnemyModel)
 		end
 	end)
 end
-
+--i wanna >>>!!!!! the scripter role! <:)> ! <:)> ! <:)>
 return EnemySpawnManager
