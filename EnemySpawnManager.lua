@@ -1,7 +1,7 @@
 local EnemySpawnManager = {}
 EnemySpawnManager.__index = EnemySpawnManager
 
--- init
+-- init 
 function EnemySpawnManager.new()
 	local self = setmetatable({}, EnemySpawnManager)
 	self.EnemyFolder = game.ReplicatedFirst:WaitForChild("Main_RS"):WaitForChild("Zombies")
