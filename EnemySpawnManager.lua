@@ -1,52 +1,54 @@
 local EnemySpawnManager = {}
 EnemySpawnManager.__index = EnemySpawnManager
 
+-- init
 function EnemySpawnManager.new()
 	local self = setmetatable({}, EnemySpawnManager)
 	self.EnemyFolder = game.ReplicatedFirst:WaitForChild("Main_RS"):WaitForChild("Zombies")
 	self.StagesFolder = workspace:WaitForChild("Stages")
 	self.EnemySpawnPoints = workspace:WaitForChild("EnemySpawnPoints"):GetChildren()
+
 	self.EnemySpawnRate = 1
 	self.EnemySpawnDelay = 1
-	self.EnemySpawnedTable = {}
+
+	self.spawnedEnemies = {}
 	self:StartAutoReset()
 	return self
 end
 
-local StageProbabilities = {
+local stageChances = {
 	Stage1 = {Normal = 0.9, Master = 0.1, Boss = 0},
 	Stage2 = {Normal = 0.5, Master = 0.5, Boss = 0},
 	Stage3 = {Normal = 0.495, Master = 0.495, Boss = 0.01}
 }
 
--- checks target
+-- target check
 function EnemySpawnManager:IsTargetAttackable(root, targetRoot)
 	if not root or not targetRoot then return false end
 
-	local targetHumanoid = targetRoot.Parent:FindFirstChild("Humanoid")
-	if not targetHumanoid or targetHumanoid.Health <= 0 then return false end
+	local targetHum = targetRoot.Parent:FindFirstChild("Humanoid")
+	if not targetHum or targetHum.Health <= 0 then return false end
 
-	local distance = (targetRoot.Position - root.Position).Magnitude
-	if distance > 50 then return false end
+	local dist = (targetRoot.Position - root.Position).Magnitude
+	if dist > 50 then return false end
 
-	local ray = Ray.new(
-		root.Position,
-		(targetRoot.Position - root.Position).Unit * distance
-	)
+	local dir = (targetRoot.Position - root.Position)
 
-	local part = workspace:FindPartOnRayWithIgnoreList(ray, {
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {
 		targetRoot.Parent,
 		root.Parent
-	}, false, true)
+	}
 
-	if part then
+	local res = workspace:Raycast(root.Position, dir, params)
+	if res then
 		return false
 	end
-
 	return true
 end
 
--- handles auto reset
+-- auto reset
 function EnemySpawnManager:StartAutoReset()
 	task.spawn(function()
 		while true do
@@ -56,113 +58,106 @@ function EnemySpawnManager:StartAutoReset()
 	end)
 end
 
--- resets all enemies
+-- wipe enemies
 function EnemySpawnManager:ResetEnemies()
-	local stagesToRespawn = {}
-
-	for _, enemy in ipairs(self.EnemySpawnedTable) do
+	local stages = {}
+	for _, enemy in ipairs(self.spawnedEnemies) do
 		if enemy and enemy.Parent then
-			table.insert(stagesToRespawn, enemy.Parent)
+			table.insert(stages, enemy.Parent)
 		end
 		if enemy then
 			enemy:Destroy()
 		end
 	end
 
-	table.clear(self.EnemySpawnedTable)
-	for _, stageFolder in ipairs(stagesToRespawn) do
-		self:SpawnEnemy(stageFolder)
+	table.clear(self.spawnedEnemies)
+
+	for _, stage in ipairs(stages) do
+		self:SpawnEnemy(stage)
 	end
 end
 
--- spawns new enemy
+-- spawn logic
 function EnemySpawnManager:SpawnEnemy(stageFolder)
 	if not stageFolder then return end
-	local stageName = stageFolder.Name
-	local probabilities = StageProbabilities[stageName]
-	if not probabilities then return end
+	local probs = stageChances[stageFolder.Name]
+	if not probs then return end
 
-	local randomValue = math.random()
-	local EnemyType = "Normal"
-	if randomValue <= probabilities.Normal then
-		EnemyType = "Normal"
-	elseif randomValue <= probabilities.Normal + probabilities.Master then
-		EnemyType = "Master"
-	elseif probabilities.Boss > 0 then
-		EnemyType = "Boss"
+	local rand = math.random()
+	local eType = "Normal"
+
+	if rand <= probs.Normal then
+		eType = "Normal"
+	elseif rand <= probs.Normal + probs.Master then
+		eType = "Master"
+	elseif probs.Boss > 0 then
+		eType = "Boss"
 	end
 
-	local EnemyModel
-	if EnemyType == "Normal" then
-		EnemyModel = self.EnemyFolder.Normal.NormalZombie:Clone()
-	elseif EnemyType == "Master" then
-		EnemyModel = self.EnemyFolder.Master.MasterZombie:Clone()
-	elseif EnemyType == "Boss" then
-		EnemyModel = self.EnemyFolder.Boss.BossZombie:Clone()
+	local clone
+	if eType == "Normal" then
+		clone = self.EnemyFolder.Normal.NormalZombie:Clone()
+	elseif eType == "Master" then
+		clone = self.EnemyFolder.Master.MasterZombie:Clone()
+	elseif eType == "Boss" then
+		clone = self.EnemyFolder.Boss.BossZombie:Clone()
 	end
 
-	local spawnPoint = self.EnemySpawnPoints[math.random(#self.EnemySpawnPoints)]
-	EnemyModel:SetPrimaryPartCFrame(spawnPoint.CFrame)
-	EnemyModel.Parent = stageFolder
-	table.insert(self.EnemySpawnedTable, EnemyModel)
-	self:EnemyAI(EnemyModel)
+	local pt = self.EnemySpawnPoints[math.random(#self.EnemySpawnPoints)]
+	clone:PivotTo(pt.CFrame)
+
+	clone.Parent = stageFolder
+	table.insert(self.spawnedEnemies, clone)
+
+	self:EnemyAI(clone)
 end
 
-local AttackFunctions = {}
+-- attack types
+local attacks = {}
 
--- normal zombie attack
-function AttackFunctions.Normal(model, targetHumanoid)
-	if not targetHumanoid then return end
-	targetHumanoid:TakeDamage(10)
+function attacks.Normal(_, hum)
+	if hum then hum:TakeDamage(10) end
 end
 
--- master zombie attack
-function AttackFunctions.Master(model, targetHumanoid)
-	if not targetHumanoid then return end
-	targetHumanoid:TakeDamage(25)
+function attacks.Master(_, hum)
+	if hum then hum:TakeDamage(25) end
 end
 
--- boss zombie attack
-function AttackFunctions.Boss(model, targetHumanoid)
-	if not targetHumanoid then return end
-	targetHumanoid:TakeDamage(50)
+function attacks.Boss(_, hum)
+	if hum then hum:TakeDamage(50) end
 end
 
--- handles attack state
+-- hitbox logic
 function EnemySpawnManager:AttackState(model, humanoid, targetRoot)
 	if not targetRoot then return end
+
 	local root = model:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
-	-- create hitbox
-	local hitPart = Instance.new("Part")
-	hitPart.Size = Vector3.new(5, 3, 5)
-	hitPart.Transparency = 1
-	hitPart.CanCollide = false
-	hitPart.Anchored = true
-	hitPart.CFrame = root.CFrame * CFrame.new(0, -1, -3)
-	hitPart.Parent = workspace
+	local hitbox = Instance.new("Part")
+	hitbox.Size = Vector3.new(5, 3, 5)
+	hitbox.Transparency = 1
+	hitbox.CanCollide = false
+	hitbox.Anchored = true
+	hitbox.CFrame = root.CFrame * CFrame.new(0, -1, -3)
+	hitbox.Parent = workspace
 
-	local touchingParts = hitPart:GetTouchingParts()
-	hitPart:Destroy()
+	local parts = hitbox:GetTouchingParts()
+	hitbox:Destroy()
 
-	local attackedHumanoids = {}
-	for _, part in pairs(touchingParts) do
-		local character = part:FindFirstAncestorOfClass("Model")
-		if character and character ~= model then
-			local targetHumanoid = character:FindFirstChild("Humanoid")
-			if targetHumanoid and targetHumanoid.Health > 0 then
-				if not attackedHumanoids[targetHumanoid] then
-					attackedHumanoids[targetHumanoid] = true
+	local hitHums = {}
+	for _, p in pairs(parts) do
+		local char = p:FindFirstAncestorOfClass("Model")
 
-					local folderName = model.Parent.Name
+		if char and char ~= model then
+			local hum = char:FindFirstChild("Humanoid")
 
-					if folderName == "Normal" then
-						AttackFunctions.Normal(model, targetHumanoid)
-					elseif folderName == "Master" then
-						AttackFunctions.Master(model, targetHumanoid)
-					elseif folderName == "Boss" then
-						AttackFunctions.Boss(model, targetHumanoid)
+			if hum and hum.Health > 0 then
+				if not hitHums[hum] then
+					hitHums[hum] = true
+					local fName = model.Parent.Name
+					if attacks[fName] then
+						attacks[fName](model, hum)
 					end
 				end
 			end
@@ -170,12 +165,11 @@ function EnemySpawnManager:AttackState(model, humanoid, targetRoot)
 	end
 end
 
--- handles move state
-function EnemySpawnManager:MoveState(root, humanoid, targetRoot, PathfindingService, lastPathTime, RepathCooldown)
-	if not targetRoot then return lastPathTime end
-
-	if tick() - lastPathTime >= RepathCooldown then
-		local pathParams = {
+-- pathfinding
+function EnemySpawnManager:MoveState(root, humanoid, targetRoot, pathService, lastTime, cooldown)
+	if not targetRoot then return lastTime end
+	if tick() - lastTime >= cooldown then
+		local path = pathService:CreatePath({
 			AgentCanJump = true,
 			AgentRadius = 3,
 			AgentHeight = 6,
@@ -185,103 +179,106 @@ function EnemySpawnManager:MoveState(root, humanoid, targetRoot, PathfindingServ
 				Neon = 10,
 				Door = 5
 			}
-		}
+		})
 
-		local path = PathfindingService:CreatePath(pathParams)
-		local success, errorMessage = pcall(function()
+		local ok = pcall(function()
 			path:ComputeAsync(root.Position, targetRoot.Position)
 		end)
 
-		if success and path.Status == Enum.PathStatus.Success then
-			local waypoints = path:GetWaypoints()
-			local nextWaypoint = waypoints[2] or waypoints[1]
-			if nextWaypoint then
-				humanoid:MoveTo(nextWaypoint.Position)
+		if ok and path.Status == Enum.PathStatus.Success then
+			local points = path:GetWaypoints()
+			local nxt = points[2] or points[1]
+
+			if nxt then
+				humanoid:MoveTo(nxt.Position)
 			end
 		end
-		lastPathTime = tick()
+
+		lastTime = tick()
 	end
-	return lastPathTime
+	return lastTime
 end
 
--- handles animation states
+-- anims
 function EnemySpawnManager:AnimationState(model, humanoid, state)
 	if not model or not humanoid then return end
-	local animator = humanoid:FindFirstChild("Animator")
-	if not animator then
-		animator = Instance.new("Animator")
-		animator.Parent = humanoid
+	local anim = humanoid:FindFirstChildOfClass("Animator")
+	if not anim then
+		anim = Instance.new("Animator")
+		anim.Parent = humanoid
+	end
+	if model:GetAttribute("CurrentAnimationState") == state then return end
+
+	for _, t in pairs(anim:GetPlayingAnimationTracks()) do
+		t:Stop()
 	end
 
-	local currentState = model:GetAttribute("CurrentAnimationState")
-	if currentState == state then return end
-
-	for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-		track:Stop()
-	end
-
-	local animationsFolder = model:FindFirstChild("Animations")
-	if animationsFolder then
-		local animObject = animationsFolder:FindFirstChild(state)
-		if animObject and animObject:IsA("Animation") then
-			local track = animator:LoadAnimation(animObject)
+	local fldr = model:FindFirstChild("Animations")
+	if fldr then
+		local obj = fldr:FindFirstChild(state)
+		if obj and obj:IsA("Animation") then
+			local track = anim:LoadAnimation(obj)
 			track:Play()
 		end
 	end
 	model:SetAttribute("CurrentAnimationState", state)
 end
 
--- handles ai logic
-function EnemySpawnManager:EnemyAI(EnemyModel)
-	local humanoid = EnemyModel:FindFirstChild("Humanoid")
-	local root = EnemyModel:FindFirstChild("HumanoidRootPart")
-	if not humanoid or not root then return end
-	local Players = game:GetService("Players")
-	local PathfindingService = game:GetService("PathfindingService")
-	local RepathCooldown = 0.5
-	local lastPathTime = 0
+-- main ai
+function EnemySpawnManager:EnemyAI(model)
+	local hum = model:FindFirstChild("Humanoid")
+	local root = model:FindFirstChild("HumanoidRootPart")
+
+	if not hum or not root then return end
+
+	local players = game:GetService("Players")
+	local pathService = game:GetService("PathfindingService")
+
+	local repathTime = 0.5
+	local lastTime = 0
 
 	task.spawn(function()
-		while EnemyModel.Parent do
+		while model.Parent do
 			task.wait(0.2)
-			local nearestPlayer = nil
-			local shortestDistance = math.huge
-			local targetRoot = nil
+			local closestDist = math.huge
+			local tRoot = nil
 
-			for _, player in pairs(Players:GetPlayers()) do
-				local char = player.Character
+			for _, plr in pairs(players:GetPlayers()) do
+				local char = plr.Character
 				if char then
 					local hrp = char:FindFirstChild("HumanoidRootPart")
-					local humanoidTarget = char:FindFirstChild("Humanoid")
-					if hrp and humanoidTarget and humanoidTarget.Health > 0 then
+					local tHum = char:FindFirstChild("Humanoid")
+
+					if hrp and tHum and tHum.Health > 0 then
 						if not self:IsTargetAttackable(root, hrp) then
 							continue
 						end
 
-						local distance = (hrp.Position - root.Position).Magnitude
-						if distance < shortestDistance then
-							shortestDistance = distance
-							nearestPlayer = player
-							targetRoot = hrp
+						local dist = (hrp.Position - root.Position).Magnitude
+
+						if dist < closestDist then
+							closestDist = dist
+							tRoot = hrp
 						end
 					end
 				end
 			end
 
 			local state = "Idle"
-			if targetRoot then
-				state = (shortestDistance < 5) and "Attack" or "Move"
+
+			if tRoot then
+				state = (closestDist < 5) and "Attack" or "Move"
 			end
 
-			self:AnimationState(EnemyModel, humanoid, state)
+			self:AnimationState(model, hum, state)
 
 			if state == "Attack" then
-				self:AttackState(EnemyModel, humanoid, targetRoot)
+				self:AttackState(model, hum, tRoot)
 			elseif state == "Move" then
-				lastPathTime = self:MoveState(root, humanoid, targetRoot, PathfindingService, lastPathTime, RepathCooldown)
+				lastTime = self:MoveState(root, hum, tRoot, pathService, lastTime, repathTime)
 			end
 		end
 	end)
 end
---i wanna >>>!!!!! the scripter role! <:)> ! <:)> ! <:)>
+
 return EnemySpawnManager
