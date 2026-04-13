@@ -1,11 +1,14 @@
 local EnemySpawnManager = {}
 EnemySpawnManager.__index = EnemySpawnManager
-
+ 
 -- init 
 function EnemySpawnManager.new()
 	local self = setmetatable({}, EnemySpawnManager)
-	self.EnemyFolder = game.ReplicatedFirst:WaitForChild("Main_RS"):WaitForChild("Zombies")
+	--enemyFolder
+	self.EnemyFolder = game.ReplicatedFirst:WaitForChild("Main_RS"):WaitForChild("Enemies")
 	self.StagesFolder = workspace:WaitForChild("Stages")
+
+	--enemies spawnPoint
 	self.EnemySpawnPoints = workspace:WaitForChild("EnemySpawnPoints"):GetChildren()
 
 	self.EnemySpawnRate = 1
